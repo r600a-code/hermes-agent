@@ -71,6 +71,27 @@ class TestFormatForInjection:
         assert "Working" in text
         assert "context compression" in text.lower()
 
+    def test_includes_recent_task_timeline(self):
+        store = TodoStore()
+        store.write([
+            {"id": "inspect", "content": "Inspect root cause", "status": "pending"},
+            {"id": "fix", "content": "Patch todo compaction", "status": "pending"},
+        ])
+        store.write([
+            {"id": "inspect", "status": "completed"},
+            {"id": "fix", "status": "in_progress"},
+        ], merge=True)
+
+        text = store.format_for_injection()
+        assert "[Recent task timeline]" in text
+        assert "inspect. Inspect root cause" in text
+        assert "status · pending → completed" in text
+        assert "fix. Patch todo compaction" in text
+        assert "status · pending → in_progress" in text
+        # Completed work stays out of the active list section.
+        active_section = text.split("[Recent task timeline]", 1)[0]
+        assert "[x]" not in active_section
+
 
 class TestMergeMode:
     def test_update_existing_by_id(self):

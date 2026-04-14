@@ -15,6 +15,7 @@ Design:
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 
@@ -34,6 +35,7 @@ class TodoStore:
 
     def __init__(self):
         self._items: List[Dict[str, str]] = []
+        self._history: List[Dict[str, str]] = []
 
     def write(self, todos: List[Dict[str, Any]], merge: bool = False) -> List[Dict[str, str]]:
         """
@@ -44,6 +46,8 @@ class TodoStore:
             merge: if False, replace the entire list. If True, update
                    existing items by id and append new ones.
         """
+        previous_items = self.read()
+
         if not merge:
             # Replace mode: new list entirely
             self._items = [self._validate(t) for t in self._dedupe_by_id(todos)]
@@ -77,6 +81,8 @@ class TodoStore:
                     rebuilt.append(current)
                     seen.add(current["id"])
             self._items = rebuilt
+
+        self._record_history(previous_items, self._items, merge=merge)
         return self.read()
 
     def read(self) -> List[Dict[str, str]]:
@@ -119,7 +125,85 @@ class TodoStore:
             marker = markers.get(item["status"], "[?]")
             lines.append(f"- {marker} {item['id']}. {item['content']} ({item['status']})")
 
+        timeline = self._format_recent_history()
+        if timeline:
+            lines.append("")
+            lines.append("[Recent task timeline]")
+            lines.extend(timeline)
+
         return "\n".join(lines)
+
+    def _record_history(
+        self,
+        previous_items: List[Dict[str, str]],
+        current_items: List[Dict[str, str]],
+        *,
+        merge: bool,
+    ) -> None:
+        previous_by_id = {item["id"]: item for item in previous_items}
+        current_by_id = {item["id"]: item for item in current_items}
+
+        for item in current_items:
+            previous = previous_by_id.get(item["id"])
+            if previous is None:
+                if item["status"] in ("pending", "in_progress"):
+                    self._append_history(
+                        item_id=item["id"],
+                        content=item["content"],
+                        action="planned",
+                        detail=f"set to {item['status']}",
+                    )
+                continue
+
+            if previous.get("content") != item["content"]:
+                self._append_history(
+                    item_id=item["id"],
+                    content=item["content"],
+                    action="renamed",
+                    detail=f"was: {previous.get('content', '(no description)')}",
+                )
+
+            if previous.get("status") != item["status"]:
+                self._append_history(
+                    item_id=item["id"],
+                    content=item["content"],
+                    action="status",
+                    detail=f"{previous.get('status', 'pending')} → {item['status']}",
+                )
+
+        if not merge:
+            for item in previous_items:
+                if item["id"] not in current_by_id:
+                    self._append_history(
+                        item_id=item["id"],
+                        content=item["content"],
+                        action="removed",
+                        detail=f"dropped from plan (was {item['status']})",
+                    )
+
+    def _append_history(self, *, item_id: str, content: str, action: str, detail: str) -> None:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+        self._history.append(
+            {
+                "timestamp": stamp,
+                "id": item_id,
+                "content": content,
+                "action": action,
+                "detail": detail,
+            }
+        )
+        self._history = self._history[-12:]
+
+    def _format_recent_history(self, limit: int = 6) -> List[str]:
+        if not self._history:
+            return []
+
+        lines: List[str] = []
+        for entry in self._history[-limit:]:
+            lines.append(
+                f"- {entry['timestamp']} · {entry['id']}. {entry['content']} · {entry['action']} · {entry['detail']}"
+            )
+        return lines
 
     @staticmethod
     def _validate(item: Dict[str, Any]) -> Dict[str, str]:
