@@ -23,6 +23,8 @@ This skill teaches the agent to preserve a compact handoff layer across `/compre
 - enough continuity to resume without re-fetching or re-deciding
 - without re-injecting completed work as if it were still active
 
+For a reviewer-friendly demonstration, see `references/live-showcase.md` and `references/with-vs-without.md`.
+
 ## When to Use
 
 Use this skill when:
